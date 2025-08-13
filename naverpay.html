@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>NaverPay Demo</title>
+    <!-- 선택: 서버가 clientId/chainId를 노출한다면 /config.js 제공 (window.APP_CONFIG 채움) -->
+    <!-- <script src="/config.js"></script> -->
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0;
+      }
+      main {
+        min-height: 60vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 440px;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+        padding: 24px;
+      }
+      .btn {
+        background-color: #00de5a;
+        width: 100%;
+        padding: 12px 0;
+        font-weight: 600;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        cursor: pointer;
+      }
+      /* .btn[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      } */
+      .muted {
+        font-size: 12px;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <h1 style="font-size: 22px; margin: 0 0 8px 0">네이버페이 결제 데모</h1>
+        <p class="muted" style="margin: 0 0 20px 0">
+          금액 <b id="amountText">100원</b> · 상품명
+          <b id="prodText">테스트 상품</b>
+        </p>
+
+        <button id="naverPayBtn" class="btn" disabled>
+          네이버페이로 결제하기
+        </button>
+      </div>
+    </main>
+    <script>
+      // ===== 설정 =====
+      const CLIENT_ID =
+        (window.APP_CONFIG && window.APP_CONFIG.NAVERPAY_CLIENT_ID) ||
+        "CLIENT_ID";
+      const CHAIN_ID =
+        (window.APP_CONFIG && window.APP_CONFIG.NAVERPAY_CHAIN_ID) ||
+        "CHAIN_ID";
+      const AMOUNT = 100;
+      const PRODUCT = "테스트 상품";
+      const RETURN_URL = location.origin + "/return.html";
+
+      document.getElementById("amountText").textContent =
+        AMOUNT.toLocaleString() + "원";
+      document.getElementById("prodText").textContent = PRODUCT;
+
+      function loadScriptOnce(src) {
+        return new Promise((resolve, reject) => {
+          if (document.querySelector(`script[src="${src}"]`)) return resolve();
+          const s = document.createElement("script");
+          s.src = src;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error("Failed to load " + src));
+          document.head.appendChild(s);
+        });
+      }
+
+      const NAVER_PAY_SDK = "https://nsp.pay.naver.com/sdk/js/naverpay.min.js";
+      let payInstance = null;
+
+      (async function init() {
+        try {
+          if (!CLIENT_ID || !CHAIN_ID) {
+            console.warn(
+              "[NaverPay] CLIENT_ID/CHAIN_ID 누락. .env와 /config.js 확인"
+            );
+          }
+
+          await loadScriptOnce(NAVER_PAY_SDK);
+          if (!window.Naver || !window.Naver.Pay || !window.Naver.Pay.create) {
+            alert("Naver Pay SDK를 찾을 수 없습니다.");
+            return;
+          }
+
+          payInstance = window.Naver.Pay.create({
+            mode: "development", // 운영 전환 시 "production"
+            clientId: CLIENT_ID,
+            chainId: CHAIN_ID,
+            openType: "popup",
+            onAuthorize: async (data) => {
+              if (data.resultCode === "Success" && data.paymentId) {
+                try {
+                  const resp = await fetch("/api/naverpay/approve", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ paymentId: data.paymentId }),
+                  });
+                  const json = await resp.json();
+                  if (json?.ok) {
+                    alert("결제가 완료되었습니다!");
+                  } else {
+                    throw new Error(json?.message || "approve failed");
+                  }
+                } catch (e) {
+                  alert(
+                    "승인 처리 실패 (서버 연동 필요): " +
+                      (e?.message || "unknown")
+                  );
+                }
+              } else {
+                alert(
+                  data.resultMessage || "결제가 취소되었거나 실패했습니다."
+                );
+              }
+            },
+          });
+
+          document.getElementById("naverPayBtn").disabled = false;
+        } catch (e) {
+          console.error(e);
+          alert("초기화 중 오류: " + (e?.message || "unknown"));
+        }
+      })();
+
+      document.getElementById("naverPayBtn").addEventListener("click", () => {
+        if (!payInstance) return;
+
+        payInstance.open({
+          merchantUserKey: "np_wvmlg333565",
+          merchantPayKey: "order-" + Date.now(),
+          productName: PRODUCT,
+          totalPayAmount: AMOUNT,
+          taxScopeAmount: AMOUNT,
+          taxExScopeAmount: 0,
+          productCount: 1,
+          returnUrl: RETURN_URL,
+          productItems: [
+            {
+              categoryType: "ETC",
+              categoryId: "ETC",
+              uid: "SKU-001",
+              name: PRODUCT,
+              payReferrer: "ETC",
+              count: 1,
+            },
+          ],
+        });
+      });
+    </script>
+  </body>
+</html>
